@@ -47,9 +47,9 @@ def edgeFunction(triangle):
     newTri = numpy.delete(triangle, 2, 1)
 
     P0, P1, P2 = newTri
-    e0 = signedAreaCoeffs(P1, P2)  # opposite P0
-    e1 = signedAreaCoeffs(P2, P0)  # opposite P1
-    e2 = signedAreaCoeffs(P0, P1)  # opposite P2
+    e0 = signedAreaCoeffs(P0, P1) 
+    e1 = signedAreaCoeffs(P1, P2) 
+    e2 = signedAreaCoeffs(P2, P0) 
     return e0, e1, e2
 
 class Camera:
@@ -146,7 +146,8 @@ class Camera:
                 if any(isBehind) and not all(isBehind):
                     finalTriangles = fanTriangulate(clippedTriangle(clipTriangle, self.zNear))
 
-                if not object.cull:
+                #Rendering both sides
+                if not object.inside:
                     finalTriangles.extend([triangle[::-1] for triangle in finalTriangles])
 
                 for finalTriangle in finalTriangles:

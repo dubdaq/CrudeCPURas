@@ -8,20 +8,22 @@ class DirectionalLight:
 
 class Object:
     renderList = []
-    def __init__(self, verticies, triangles, position = (0, 0, 0), smooth = False, cull = True):
+    def __init__(self, verticies, triangles, position = (0, 0, 0), smooth = False, inside = True):
         self.verticies = numpy.array(verticies, dtype = numpy.float32)
         self.triangles = triangles
         self.position = numpy.array([0.0, 0.0, 0.0])
         self.move(*position)
 
+        self.theta = 0
+        self.psi = 0
+
         self.normals = []
 
         for a, b, c in self.triangles:
-                self.normals.append(normal(self.verticies[a], self.verticies[b], self.verticies[c]))
+            self.normals.append(normal(self.verticies[a], self.verticies[b], self.verticies[c]))
 
         self.normals = numpy.array(self.normals)
-
-        self.cull = cull
+        self.inside = inside
 
     def move(self, Tx, Ty, Tz):
         self.verticies += numpy.array([Tx, Ty, Tz])
@@ -39,6 +41,9 @@ class Object:
                     ]
                 )
         self.verticies = (self.verticies - self.position) @ R + self.position
+        self.normals = self.normals @ R
+        self.theta += theta
+        self.psi += psi
 
     def scale(self, factor):
         self.verticies = numpy.array([[factor*i for i in vertex] for vertex in self.verticies])

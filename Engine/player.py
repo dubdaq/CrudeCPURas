@@ -1,10 +1,10 @@
-import pygame, numpy, math
+import numpy, math
 from Engine.camera import Camera
 from Engine.viewport import Viewport
 from utility import vec2, vec3
 
 class Player:
-    def __init__(self, viewSize : vec2, gridSize : int, initialPosition : vec3, theta, psi, speed : float, zNear = 0.1, zFar = 20, hfov = math.radians(90), vfov = math.radians(60)):
+    def __init__(self, screen, viewSize : vec2, gridSize : int, initialPosition : vec3, theta, psi, speed : float, zNear = 0.1, zFar = 20, hfov = math.radians(90), vfov = math.radians(60)):
         self.speed = speed
 
         self.position = initialPosition
@@ -16,7 +16,7 @@ class Player:
 
         self.idle = False
 
-        self.viewport = Viewport(viewSize, gridSize)
+        self.viewport = Viewport(viewSize, gridSize, screen)
         self.camera = Camera(initialPosition, self.theta, self.psi, zNear, zFar, hfov, vfov)
 
     def move(self, dTheta, dPsi, displacementVector):
@@ -36,10 +36,9 @@ class Player:
         self.move(self.dTheta*interpolation, self.dPsi * interpolation, self.displacementVector * interpolation)
 
     #Rendering stuff
-    def render(self, screen : pygame.Surface, objects, lights):
+    def render(self, objects, lights):
         self.camera.rasterizeTriangles(self.viewport, objects, lights) 
 
-        pixelValues = pygame.surfarray.pixels3d(self.viewport)
         for tilePosition, (ndcY, ndcX, xMin, yMin, xMax, yMax) in self.viewport.tileGrid.items():
             for triangle in self.viewport.tiles[tilePosition]:
                 A, B, C = triangle['edge functions']
@@ -56,7 +55,8 @@ class Player:
                 wSum = alpha + beta + gamma
                 zVal = numpy.full_like(wSum, self.camera.zFar)
                 numpy.divide(
-                    alpha*triangle['triangle'][0][3] + beta*triangle['triangle'][1][3] + gamma*triangle['triangle'][2][3],
+                    #we need to use the vertex opposite the side calculated
+                    alpha*triangle['triangle'][2][3] + beta*triangle['triangle'][0][3] + gamma*triangle['triangle'][1][3],
                     wSum,
                     out=zVal,
                     where=inside
@@ -65,10 +65,6 @@ class Player:
                 zBufferSlice = self.viewport.zBuffer[xMin : xMax, yMin: yMax]
                 closer = inside & (zVal < zBufferSlice) & (zVal < self.camera.zFar)
                 zBufferSlice[closer] = zVal[closer]
-                
-                pixelValues[xMin: xMax, yMin: yMax][closer] = triangle['color']
+                self.viewport.pixelBuffer[xMin: xMax, yMin: yMax][closer] = triangle['color']
     
-        del pixelValues
-        x,y = screen.width//2, screen.height//2
-        screen.blit(self.viewport, (x - self.viewport.width // 2, y - self.viewport.height // 2))
-
+        self.viewport.set() 

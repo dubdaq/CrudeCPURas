@@ -1,14 +1,17 @@
 #unusable if scene has more than 500 trianglez.
 #rendering suzanne is impossible
 
-import pygame, sys, math, numpy
+import pygame, sys, math
 from utility import vec2, vec3, normalize
 from config import *
 from Engine import Player, Object, DirectionalLight, Gizmo
 
+fps = 0 #to measure fps
+
 #INITIALITING PYGAME 
 pygame.init()
 screen = pygame.display.set_mode((screenWidth, screenHeight))
+font = pygame.font.SysFont("Courier", 15) 
 
 #Simple Mesh
 cubeModel = Object(
@@ -66,7 +69,7 @@ floorModel = Object(
         [3, 1, 2]
     ],
     position=[0, -2.0001, 0],
-    cull = False
+    inside = False
 )
 
 cubeModel.yawPitchRotation(math.pi/3, math.pi/6)
@@ -76,11 +79,13 @@ suzanne.render()
 floorModel.render()
 
 light = DirectionalLight((1, -3, 1))
-player = Player(vec2(1152, 768), 64, vec3(-5, 0, 5), 2*math.pi/3, 0, speed = 2/updatesPerSecond)
+player = Player(screen, vec2(1152, 768), 64, vec3(-5, 0, 5), 2*math.pi/3, 0, speed = 2/updatesPerSecond)
 gizmo = Gizmo(screen, player.camera, player.viewport)
 
 #UPDATE AND DISPLAY FUNCTIONS
 def update():
+    suzanne.yawPitchRotation(math.pi/updatesPerSecond, 0)
+    pyramidModel.yawPitchRotation(0, math.pi/updatesPerSecond)
     theta, psi = 0, 0
     if keys[pygame.K_UP]:
         psi -= mouseSensitivity * math.pi/updatesPerSecond
@@ -121,18 +126,30 @@ def update():
         player.idle = True
 
 def display(interpolation):
-    if not player.idle or numpy.all(player.viewport.zBuffer == math.inf): 
-        player.interpolate(interpolation)
-        player.viewport.flush()
-        gizmo.clear()
-        player.render(screen, Object.renderList, [light])
-        gizmo.drawLine(vec3(2, 0, -1), vec3(3, 1, 7))
-        gizmo.set()
+    #if not player.idle or sceneChange or numpy.all(player.viewport.zBuffer == math.inf):
+    # will implement dirty scenes later. 
+    
+    suzanne.yawPitchRotation(math.pi/updatesPerSecond * interpolation, 0)
+    pyramidModel.yawPitchRotation(math.pi/updatesPerSecond * interpolation, 0)
+
+    player.interpolate(interpolation)
+    player.viewport.flush()
+    gizmo.clear()
+    player.render(Object.renderList, [light])
+    gizmo.drawLine(vec3(2, 0, -1), vec3(3, 1, 7))
+    gizmo.set()
+
+    txtRect = font.render(f"{fps}", True, "white")
+    screen.blit(txtRect, (0, 0))
+
 
 #DEWITTER GAME LOOP
 nextGameTick = pygame.time.get_ticks()
+startTime = pygame.time.get_ticks()
 loops = 0
 interpolation = 0
+
+currentFrame = 0
 
 running = True
 while running:
@@ -150,7 +167,14 @@ while running:
 
     interpolation = float( pygame.time.get_ticks() + timePerUpdate - nextGameTick ) / float(timePerUpdate)
     display(interpolation)
+    currentFrame += 1
     pygame.display.flip()
+
+    curTime = pygame.time.get_ticks()
+    if curTime - startTime >= 1000:
+        fps = currentFrame
+        currentFrame = 0
+        startTime = curTime
     
 pygame.quit()
 sys.exit()
