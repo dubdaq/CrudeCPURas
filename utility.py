@@ -87,6 +87,8 @@ def cross(vectorA, vectorB):
 def normal(A, B, C):
     return normalize(cross(C-A, B-A))
 
+def lerp(A, B, t):
+    return A + t*(B-A)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,5 @@
 import numpy, math
 from config import aspect
-from utility import vec3
 
 def lerp(A, B, t):
     lerpedVals = [ A[i] + (B[i] - A[i]) * t for i in range(4)]
@@ -31,17 +30,17 @@ def clippedTriangle(polygonVerts, zNear):
         elif prevPoint[2] + zNear >= 0:
             yield lerp(currentPoint, prevPoint, d1 / (d1 - d2))
 
-def signedArea(triangle):    
-    a, b, c, x, y, z, p, q, r = triangle.ravel()
-    #The factors used with a,b,c in this calculation would be our edge function values
-    #its a pretty simple idea, using signedArea to find out which side of the line and point lies.
-    return 0.5 * (a*(y*r - z*q) + b*(z*p - r*x) + c*(x*q-p*y))
-
 def signedAreaCoeffs(P0, P1):
     A = P0[1]*P1[2] - P1[1]*P0[2]   # y0*w1 - y1*w0
     B = P1[0]*P0[2] - P0[0]*P1[2]   # x1*w0 - x0*w1
     C = P0[0]*P1[1] - P1[0]*P0[1]   # x0*y1 - x1*y0
     return A, B, C 
+
+def signedArea(triangle):    
+    a, b, c, x, y, z, p, q, r = triangle.ravel()
+    #The factors used with a,b,c in this calculation would be our edge function values
+    #its a pretty simple idea, using signedArea to find out which side of the line and point lies.
+    return 0.5 * (a*(y*r - z*q) + b*(z*p - r*x) + c*(x*q-p*y))
 
 def edgeFunction(triangle):
     newTri = numpy.delete(triangle, 2, 1)
@@ -53,10 +52,8 @@ def edgeFunction(triangle):
     return e0, e1, e2
 
 class Camera:
-    def __init__(self, initialPosition : vec3, theta, psi, zNear, zFar, hfov, vfov):
-        self.position = initialPosition
-        self.theta = theta
-        self.psi = psi
+    def __init__(self, moveSys, zNear, zFar, hfov, vfov):
+        self.movement = moveSys
 
         self.zNear = zNear
         self.zFar = zFar
@@ -74,15 +71,13 @@ class Camera:
             [ 0,  0, a, 1], 
             [ 0,  0, b, 0]])
 
-    def move(self, position : vec3, theta, psi):
-        self.position = position
-        self.theta = theta
-        self.psi = psi
-
+        #clip space cache
+        self.camMatrix = self.camTransform()
+        
     def camTransform(self):
-        cTheta, sTheta = math.cos(self.theta), math.sin(self.theta)
-        cPsi, sPsi = math.cos(self.psi), math.sin(self.psi)
-        tx, ty, tz = self.position
+        cTheta, sTheta = math.cos(self.movement.theta), math.sin(self.movement.theta)
+        cPsi, sPsi = math.cos(self.movement.psi), math.sin(self.movement.psi)
+        tx, ty, tz = self.movement.position
 
         R = numpy.array(
             [
@@ -105,61 +100,36 @@ class Camera:
 
         return viewMatrix @ self.projectionMatrix
 
-    def viewMatrix(self):
-        cTheta, sTheta = math.cos(self.theta), math.sin(self.theta)
-        cPsi, sPsi = math.cos(self.psi), math.sin(self.psi)
-        tx, ty, tz = self.position
 
-        R = numpy.array(
-            [
-                [ cTheta, sPsi*sTheta, cPsi*sTheta, 0],
-                [ 0     , cPsi       , -sPsi      , 0],
-                [-sTheta, sPsi*cTheta, cPsi*cTheta, 0],
-                [ 0     , 0          , 0          , 1],
-            ]
-        )
+    def rasterizeTriangles(self, viewport, scene, lights, idle):
+        if not idle: 
+            self.camMatrix = self.camTransform()
 
-        Tinv = numpy.array(
-            [
-                [  1,   0,   0, 0],
-                [  0,   1,   0, 0],
-                [  0,   0,   1, 0],
-                [-tx, -ty, -tz, 1]
-            ]
-        )
+        #need to compute tiling parallelly.
+        vertsInWorld = numpy.hstack((scene.allVerts, numpy.ones((len(scene.allVerts), 1))))
+        clipVerts = vertsInWorld @ self.camMatrix
+        clipTriangles = clipVerts[scene.allTriangles]
 
-        return Tinv @ R
+        for clipTriangle, triangleNormal in zip(clipTriangles, scene.allNormals):
+            finalTriangles = [clipTriangle]
+            isBehind = [P[2] + self.zNear < 0 for P in clipTriangle]
 
-    def rasterizeTriangles(self, viewport, objects, lights):
-        for object in objects:
-            vertsInWorld = numpy.hstack((object.verticies, numpy.ones((len(object.verticies), 1))))
-            clipVerts = vertsInWorld @ self.camTransform()
-            clipTriangles = clipVerts[object.triangles]
+            if all(isBehind):
+                continue
 
-            for clipTriangle, triangleNormal in zip(clipTriangles, object.normals):
-                finalTriangles = [clipTriangle]
-                isBehind = [P[2] + self.zNear < 0 for P in clipTriangle]
+            if any(isBehind) and not all(isBehind):
+                finalTriangles = fanTriangulate(clippedTriangle(clipTriangle, self.zNear))
 
-                if all(isBehind):
+            for finalTriangle in finalTriangles:
+                if signedArea(numpy.delete(finalTriangle, 2, 1)) < 0.0001:
                     continue
 
-                if any(isBehind) and not all(isBehind):
-                    finalTriangles = fanTriangulate(clippedTriangle(clipTriangle, self.zNear))
+                edgeFuncs = edgeFunction(finalTriangle)
+                color = numpy.array([0, 0, 0])
 
-                #Rendering both sides
-                if not object.inside:
-                    finalTriangles.extend([triangle[::-1] for triangle in finalTriangles])
+                for light in lights:    
+                    lightIntensity = 0.5 * (numpy.dot(triangleNormal, light.direction) + 1) if isinstance(triangleNormal, numpy.ndarray) else 0
+                    color = light.color * lightIntensity
 
-                for finalTriangle in finalTriangles:
-                    if signedArea(numpy.delete(finalTriangle, 2, 1)) < 0.0001:
-                        continue
-
-                    edgeFuncs = edgeFunction(finalTriangle)
-                    color = numpy.array([0, 0, 0])
-
-                    for light in lights:    
-                        lightIntensity = 0.5 * (numpy.dot(triangleNormal, light.direction) + 1) if isinstance(triangleNormal, numpy.ndarray) else 0
-                        color = light.color * lightIntensity
-
-                    viewport.tileTriangle(finalTriangle, color, edgeFuncs)
+                viewport.tileTriangle(finalTriangle, color, edgeFuncs)
 

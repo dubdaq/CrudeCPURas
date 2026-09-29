@@ -1,34 +1,6 @@
 import pygame, numpy, math
 from utility import vec2, clamp
 
-# # Approach abandoned after the MIT Rasterization Guide recommended different approach (see comment above tileTriangle)
-# # #Separated Axis Theorem, thanks the almight youtube alg for recommending the video.
-# def overlap(triangle : list[vec2, vec2, vec2], rect : list[vec2, vec2, vec2, vec2]):
-#     A, B, C = triangle
-#     P, Q, R, S = rect
-#     #check if one shape enclose other
-#     xAxis = vec2(1, 0)
-#     projTri = [xAxis.dot(P) for P in triangle]
-#     projRect = [xAxis.dot(P) for P in rect]
-#     triA, triB = min(projTri), max(projTri)
-#     rectA, rectB = min(projRect), max(projRect)
-
-#     if ((rectA <= triA and rectB >= triB) or (rectA >= triA and rectB <= triB)):
-#         return (True, True)
-
-#     normals = [(C-B).normal(), (A-C).normal(), (B-A).normal(), (Q-P).normal(), (R-Q).normal(), (S-R).normal(), (P-S).normal()]
-#     normals = set(normals)
-
-#     for normal in normals:
-#         projTri = [normal.dot(P) for P in triangle]
-#         projRect = [normal.dot(P) for P in rect]
-#         triA, triB = min(projTri), max(projTri)
-#         rectA, rectB = min(projRect), max(projRect)
-
-#         if (triB >= rectA and rectB >= triA) :
-#             continue
-#         return (False, False)
-#     return (True, False)
 class Viewport (pygame.Surface):
     def __init__(self, size : vec2, tileSize, screen : pygame.Surface):
         super().__init__((size.x, size.y))
@@ -39,20 +11,19 @@ class Viewport (pygame.Surface):
         self.tilesInWidth = size.x // tileSize 
         self.tilesInHeight = size.y // tileSize
 
-        #stores which triangle lie in the tile
-        self.tiles = dict([((y, x),[]) for y in range(self.tilesInHeight) for x in range(self.tilesInWidth)])
+        #stores which triangle lie in the tile, Dict of dict is like a struct of arrays.
+        self.tiles = dict([((y, x), {
+            'triangles' : [],
+            'edge functions' : [],
+            'colors' : [],
+            'coverage' : []
+        }) for y in range(self.tilesInHeight) for x in range(self.tilesInWidth)])
 
-        #stores the structure of the grid.
-        self.tileGrid = dict()
-        for row, col in self.tiles.keys():
-            xMin, yMin = col*self.tileSize, row*self.tileSize
-            xMax, yMax = xMin+self.tileSize, yMin+self.tileSize
-            ndcY, ndcX = numpy.meshgrid(
-                numpy.linspace(2*yMin/self.height - 1, 2*yMax/self.height - 1, num = self.tileSize),
-                numpy.linspace(2*xMin/self.width - 1, 2*xMax/self.width - 1, num = self.tileSize)
-            )
-            self.tileGrid[(row, col)] = (ndcY, ndcX, xMin, yMin, xMax, yMax)
-
+        #the structure of the grid, stuff we avoid building again and again
+        self.tileGrid = numpy.meshgrid(
+            numpy.linspace(0, 2*self.tileSize/self.height, num = self.tileSize),
+            numpy.linspace(0, 2*self.tileSize/self.width, num = self.tileSize),
+        )
         self.pixelBuffer = numpy.full((size.x, size.y, 3), 35, dtype = numpy.uint8)
         self.screen = screen
 
@@ -65,24 +36,28 @@ class Viewport (pygame.Surface):
         
         p, q, r = [vec2(P[0]/P[3], P[1]/P[3]) for P in triangle]
         edgeNormals = [(q-p).normal(), (r-q).normal(), (p-r).normal()]
-        offsets = [vec2(2*self.tileSize/self.width if normal.x >= 0 else 0, 2*self.tileSize/self.height if normal.y >= 0 else 0) for normal in edgeNormals]
+        w, h = 2*self.tileSize/self.width, 2*self.tileSize/self.height
+        offsets = [vec2(w if normal.x >= 0 else 0, h if normal.y >= 0 else 0) for normal in edgeNormals]
     
         for row in range(yMin, yMax):
             for col in range(xMin, xMax):
                 rejected = False
+                fullCover = True
                 s = vec2(2 * (col * self.tileSize) / self.width - 1, 2 * (row * self.tileSize) / self.height - 1)
                 for e, t in zip(edgeFuncs, offsets): 
                     eSum = e[0]*(s.x + t.x) + e[1]*(s.y + t.y) + e[2]
+                    oppESum = e[0]*(w + s.x - t.x) + e[1]*(h + s.y - t.y) + e[2]
                     if eSum <= 0:
                         rejected = True
                         break
+                    if oppESum <= 0 and fullCover:
+                        fullCover = False
                 if not rejected:
-                    self.tiles[(row, col)].append({
-                        'triangle' : triangle,
-                        'color' : color,
-                        'edge functions' : edgeFuncs,
-                    })
-
+                    self.tiles[(row, col)]['triangles'].append(numpy.array(triangle, dtype=numpy.float64))
+                    self.tiles[(row, col)]['colors'].append(numpy.array(color, dtype = numpy.int32))
+                    self.tiles[(row, col)]['edge functions'].append(numpy.array(edgeFuncs, dtype=numpy.float64))
+                    self.tiles[(row, col)]['coverage'].append(fullCover)
+        
     def set(self):
         pygame.surfarray.blit_array(self, self.pixelBuffer)
         x,y = self.screen.width//2, self.screen.height//2
@@ -91,6 +66,11 @@ class Viewport (pygame.Surface):
     def flush(self):
         #We have the seperate tile entity so that we dont need to keep rebuilting grid everyframe.
         for tileList in self.tiles.values():
-            tileList.clear()        
+            tileList['triangles'].clear()
+            tileList['colors'].clear()
+            tileList['edge functions'].clear()
+            tileList['coverage'].clear()        
         self.zBuffer.fill(math.inf)
         self.pixelBuffer.fill(35)
+    #worse case O(tiles x triangles + 2*noOfPixels) 
+
