@@ -1,4 +1,4 @@
-screenHeight, screenWidth = 768, 1152
+screenHeight, screenWidth = 768, 1200
 
 aspect = screenWidth / screenHeight
 

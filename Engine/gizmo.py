@@ -78,7 +78,7 @@ class Gizmo (pygame.Surface):
             zVal = pixelA.z + t * (pixelB.z - pixelA.z)
 
             if (currentPixel.y >= 0 and currentPixel.y < self.viewport.height) and currentPixel.x >= 0 and currentPixel.x < self.viewport.width:
-                if self.viewport.zBuffer[currentPixel.x][currentPixel.y] > zVal:
+                if self.viewport.zBuffer[currentPixel.x][currentPixel.y] >= zVal:
                     self.viewport.zBuffer[currentPixel.x][currentPixel.y] = zVal
                     self.set_at(list(currentPixel), color)
                 

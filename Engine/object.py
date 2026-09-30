@@ -7,21 +7,25 @@ class DirectionalLight:
         self.color = numpy.array(color)
 
 class Object:
-    renderList = []
-    def __init__(self, verticies, triangles, position = (0, 0, 0), smooth = False, cull = True):
-        self.verticies = numpy.array(verticies, dtype = numpy.float32)
+    #renderList = []
+    def __init__(self, verticies, triangles, position = (0, 0, 0), inside = False):
+        self.verticies = numpy.array(verticies, dtype = numpy.float16)
         self.triangles = triangles
         self.position = numpy.array([0.0, 0.0, 0.0])
         self.move(*position)
 
+        self.theta = 0
+        self.psi = 0
+
         self.normals = []
 
         for a, b, c in self.triangles:
-                self.normals.append(normal(self.verticies[a], self.verticies[b], self.verticies[c]))
+            self.normals.append(normal(self.verticies[a], self.verticies[b], self.verticies[c]))
 
         self.normals = numpy.array(self.normals)
+        self.inside = inside
 
-        self.cull = cull
+        self.idle = False
 
     def move(self, Tx, Ty, Tz):
         self.verticies += numpy.array([Tx, Ty, Tz])
@@ -39,12 +43,15 @@ class Object:
                     ]
                 )
         self.verticies = (self.verticies - self.position) @ R + self.position
+        self.normals = self.normals @ R
+        self.theta += theta
+        self.psi += psi
 
     def scale(self, factor):
         self.verticies = numpy.array([[factor*i for i in vertex] for vertex in self.verticies])
-
-    def render(self):
-        Object.renderList.append(self)
+    
+    # def render(self):
+    #     Object.renderList.append(self)
 
     @staticmethod
     def loadMesh(filePath, position):
@@ -57,3 +64,27 @@ class Object:
                 if "f " in line :
                     triangles.append([int(i.split("/")[0])-1 for i in line[1:].split()])
         return Object(verts, triangles, position)
+
+#Object class is a structure of arrays, for computational purposes it is superior to just have
+#one scene class. We can further implement VSD here on all triangles.
+
+class Scene:
+    def __init__(self, objects : list[Object]):
+        self.objects = objects
+        self.allVerts = list()
+        self.allTriangles = list()
+        self.allNormals = list()
+
+    def clear(self):
+        self.allVerts = list()
+        self.allTriangles = list()
+        self.allNormals = list()
+
+    def updateObjects(self):
+        self.clear()
+        for object in self.objects:
+            self.allVerts.extend(object.verticies)
+            self.allTriangles.extend(object.triangles)
+            self.allNormals.extend(object.normals)
+            if object.inside:
+                self.allTriangles.extend([triangle[::-1] for triangle in object.triangles])
